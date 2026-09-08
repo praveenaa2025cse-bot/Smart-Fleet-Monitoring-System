@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard - Smart Fleet Management System</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app-shell" id="app-shell"></div>
+
+  <script src="js/app.js"></script>
+  <script>
+    renderShell("dashboard.html", "Dashboard");
+
+    const content = document.getElementById("page-content");
+    content.innerHTML = `
+      <div class="stat-grid" id="stat-grid"></div>
+
+      <div class="section-title">Smart Alerts</div>
+      <div class="card" id="alerts-card">
+        <div class="empty-note">Loading alerts...</div>
+      </div>
+    `;
+
+    function statCard(label, value, accentClass) {
+      return `<div class="stat-card ${accentClass || ""}">
+                <div class="stat-label">${label}</div>
+                <div class="stat-value">${value}</div>
+              </div>`;
+    }
+
+    async function loadDashboard() {
+      try {
+        const data = await api.get("/dashboard");
+
+        document.getElementById("stat-grid").innerHTML = [
+          statCard("Total Vehicles", data.totalVehicles),
+          statCard("Available Vehicles", data.availableVehicles, "accent-success"),
+          statCard("Vehicles On Trip", data.onTripVehicles),
+          statCard("Under Maintenance", data.underMaintenanceVehicles, "accent-danger"),
+          statCard("Total Drivers", data.totalDrivers),
+          statCard("Total Trips", data.totalTrips),
+          statCard("Total Fuel Expenses", formatCurrency(data.totalFuelExpenses), "accent-warning"),
+          statCard("Total Maintenance Expenses", formatCurrency(data.totalMaintenanceExpenses), "accent-warning"),
+        ].join("");
+
+        const alertsCard = document.getElementById("alerts-card");
+        let alertsHtml = "";
+
+        (data.maintenanceDueAlerts || []).forEach((a) => {
+          alertsHtml += `<div class="alert-box danger">⚠️ ${escapeHtml(a.message)}</div>`;
+        });
+
+        (data.upcomingMaintenanceAlerts || []).forEach((a) => {
+          alertsHtml += `<div class="alert-box warning">🛠️ ${escapeHtml(a.message)}</div>`;
+        });
+
+        if ((data.unavailableVehicles || []).length) {
+          const list = data.unavailableVehicles
+            .map((v) => `${escapeHtml(v.vehicleNumber)} (${escapeHtml(v.status).replace(/_/g, " ")})`)
+            .join(", ");
+          alertsHtml += `<div class="alert-box info">🚫 Currently unavailable: ${list}</div>`;
+        }
+
+        alertsCard.innerHTML = alertsHtml || `<div class="empty-note">No alerts right now. Fleet is healthy! ✅</div>`;
+      } catch (err) {
+        document.getElementById("alerts-card").innerHTML =
+          `<div class="alert-box danger">Failed to load dashboard: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    loadDashboard();
+  </script>
+</body>
+</html>

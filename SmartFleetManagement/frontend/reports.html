@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reports - Smart Fleet Management System</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app-shell" id="app-shell"></div>
+
+  <script src="js/app.js"></script>
+  <script>
+    renderShell("reports.html", "Reports");
+
+    const content = document.getElementById("page-content");
+    content.innerHTML = `
+      <div class="report-grid">
+        <div class="card">
+          <div class="section-title" style="margin-top:0;">Vehicle-wise Fuel Expenses</div>
+          <table>
+            <thead><tr><th>Vehicle</th><th class="text-right">Fuel Expense</th></tr></thead>
+            <tbody id="fuel-report-body"><tr><td colspan="2" class="empty-note">Loading...</td></tr></tbody>
+          </table>
+        </div>
+        <div class="card">
+          <div class="section-title" style="margin-top:0;">Vehicle-wise Maintenance Expenses</div>
+          <table>
+            <thead><tr><th>Vehicle</th><th class="text-right">Maintenance Expense</th></tr></thead>
+            <tbody id="maintenance-report-body"><tr><td colspan="2" class="empty-note">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="section-title">Vehicle Status Summary</div>
+      <div class="stat-grid" style="grid-template-columns: repeat(3, 1fr);" id="status-summary"></div>
+
+      <div class="section-title">Vehicle Performance / Expense Summary</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Vehicle Number</th><th>Type</th><th>Total Trips</th><th>Total Distance</th>
+              <th>Fuel Expense</th><th>Maintenance Expense</th><th>Total Operating Cost</th>
+            </tr>
+          </thead>
+          <tbody id="summary-table-body">
+            <tr><td colspan="7" class="empty-note">Loading report...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    async function loadFuelReport() {
+      const tbody = document.getElementById("fuel-report-body");
+      try {
+        const report = await api.get("/reports/fuel");
+        const entries = Object.entries(report);
+        tbody.innerHTML = entries.length
+          ? entries.map(([veh, cost]) => `<tr><td>${escapeHtml(veh)}</td><td class="text-right">${formatCurrency(cost)}</td></tr>`).join("")
+          : `<tr><td colspan="2" class="empty-note">No fuel data yet.</td></tr>`;
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="2" class="empty-note">Failed to load: ${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    async function loadMaintenanceReport() {
+      const tbody = document.getElementById("maintenance-report-body");
+      try {
+        const report = await api.get("/reports/maintenance");
+        const entries = Object.entries(report);
+        tbody.innerHTML = entries.length
+          ? entries.map(([veh, cost]) => `<tr><td>${escapeHtml(veh)}</td><td class="text-right">${formatCurrency(cost)}</td></tr>`).join("")
+          : `<tr><td colspan="2" class="empty-note">No maintenance data yet.</td></tr>`;
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="2" class="empty-note">Failed to load: ${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    async function loadStatusSummary() {
+      const box = document.getElementById("status-summary");
+      try {
+        const summary = await api.get("/reports/vehicle-status-summary");
+        const labels = { AVAILABLE: ["Available", "accent-success"], ON_TRIP: ["On Trip", ""], UNDER_MAINTENANCE: ["Under Maintenance", "accent-danger"] };
+        box.innerHTML = Object.keys(labels).map((key) => {
+          const [label, accent] = labels[key];
+          return `<div class="stat-card ${accent}">
+                    <div class="stat-label">${label}</div>
+                    <div class="stat-value">${summary[key] || 0}</div>
+                  </div>`;
+        }).join("");
+      } catch (err) {
+        box.innerHTML = `<div class="empty-note">Failed to load status summary.</div>`;
+      }
+    }
+
+    async function loadVehicleSummary() {
+      const tbody = document.getElementById("summary-table-body");
+      try {
+        const summary = await api.get("/reports/vehicle-summary");
+        tbody.innerHTML = summary.length
+          ? summary.map((s) => `
+              <tr>
+                <td>${escapeHtml(s.vehicleNumber)}</td>
+                <td>${escapeHtml(s.vehicleType)}</td>
+                <td>${s.totalTrips}</td>
+                <td>${s.totalDistance} km</td>
+                <td>${formatCurrency(s.fuelExpense)}</td>
+                <td>${formatCurrency(s.maintenanceExpense)}</td>
+                <td><strong>${formatCurrency(s.totalOperatingCost)}</strong></td>
+              </tr>
+            `).join("")
+          : `<tr><td colspan="7" class="empty-note">No vehicles found.</td></tr>`;
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="7" class="empty-note">Failed to load report: ${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    loadFuelReport();
+    loadMaintenanceReport();
+    loadStatusSummary();
+    loadVehicleSummary();
+  </script>
+</body>
+</html>

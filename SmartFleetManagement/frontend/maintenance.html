@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Maintenance - Smart Fleet Management System</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app-shell" id="app-shell"></div>
+
+  <div class="modal-overlay" id="maintenance-modal">
+    <div class="modal">
+      <h3 id="modal-title">Add Maintenance Record</h3>
+      <form id="maintenance-form">
+        <input type="hidden" id="maintenance-id" />
+        <div class="form-group">
+          <label>Vehicle</label>
+          <select id="maintenance-vehicle" required></select>
+        </div>
+        <div class="form-group">
+          <label>Service Type</label>
+          <input type="text" id="maintenance-service-type" placeholder="e.g. Oil Change" required />
+        </div>
+        <div class="form-group">
+          <label>Service Date</label>
+          <input type="date" id="maintenance-service-date" required />
+        </div>
+        <div class="form-group">
+          <label>Cost (₹)</label>
+          <input type="number" step="0.01" id="maintenance-cost" required />
+        </div>
+        <div class="form-group">
+          <label>Next Due Date</label>
+          <input type="date" id="maintenance-next-due" />
+        </div>
+        <div class="form-group">
+          <label>Remarks</label>
+          <textarea id="maintenance-remarks" rows="2" placeholder="Optional notes"></textarea>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" onclick="closeMaintenanceModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Record</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+  <script>
+    renderShell("maintenance.html", "Maintenance Management");
+
+    const content = document.getElementById("page-content");
+    content.innerHTML = `
+      <div class="card" id="maintenance-alerts" style="margin-bottom:20px;">
+        <div class="empty-note">Loading alerts...</div>
+      </div>
+      <div class="toolbar">
+        <div></div>
+        <button class="btn btn-primary" onclick="openMaintenanceModal()">+ Add Maintenance Record</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th><th>Vehicle</th><th>Service Type</th><th>Service Date</th>
+              <th>Cost</th><th>Next Due</th><th>Remarks</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="maintenance-table-body">
+            <tr><td colspan="8" class="empty-note">Loading maintenance records...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    const modal = document.getElementById("maintenance-modal");
+    const form = document.getElementById("maintenance-form");
+
+    async function loadVehicleDropdown(selectedId) {
+      const vehicles = await api.get("/vehicles");
+      const select = document.getElementById("maintenance-vehicle");
+      select.innerHTML = vehicles.map((v) =>
+        `<option value="${v.vehicleId}">${escapeHtml(v.vehicleNumber)} (${escapeHtml(v.type)}) - ${escapeHtml(v.status).replace(/_/g," ")}</option>`
+      ).join("");
+      if (selectedId) select.value = selectedId;
+    }
+
+    async function openMaintenanceModal(record) {
+      document.getElementById("modal-title").textContent = record ? "Edit Maintenance Record" : "Add Maintenance Record";
+      document.getElementById("maintenance-id").value = record ? record.maintenanceId : "";
+      await loadVehicleDropdown(record ? record.vehicle.vehicleId : "");
+      document.getElementById("maintenance-service-type").value = record ? record.serviceType : "";
+      document.getElementById("maintenance-service-date").value = record ? record.serviceDate : "";
+      document.getElementById("maintenance-cost").value = record ? record.cost : "";
+      document.getElementById("maintenance-next-due").value = record && record.nextDueDate ? record.nextDueDate : "";
+      document.getElementById("maintenance-remarks").value = record && record.remarks ? record.remarks : "";
+      modal.classList.add("show");
+    }
+
+    function closeMaintenanceModal() {
+      modal.classList.remove("show");
+      form.reset();
+    }
+
+    async function loadAlerts() {
+      const box = document.getElementById("maintenance-alerts");
+      try {
+        const [due, upcoming] = await Promise.all([api.get("/maintenance/due"), api.get("/maintenance/upcoming")]);
+        let html = "";
+        due.forEach((r) => {
+          html += `<div class="alert-box danger">⚠️ Vehicle ${escapeHtml(r.vehicle.vehicleNumber)} maintenance is due soon (was due ${r.nextDueDate}).
+            <button class="btn btn-sm btn-secondary" style="margin-left:auto;" onclick="completeMaintenance(${r.vehicle.vehicleId})">Mark Available</button>
+          </div>`;
+        });
+        upcoming.forEach((r) => {
+          html += `<div class="alert-box warning">🛠️ Vehicle ${escapeHtml(r.vehicle.vehicleNumber)} has upcoming maintenance on ${r.nextDueDate}.</div>`;
+        });
+        box.innerHTML = html || `<div class="empty-note">No maintenance alerts. All good! ✅</div>`;
+      } catch (err) {
+        box.innerHTML = `<div class="alert-box danger">Failed to load alerts: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    async function completeMaintenance(vehicleId) {
+      try {
+        await api.put(`/maintenance/vehicle/${vehicleId}/complete`, {});
+        loadAlerts();
+        loadMaintenanceRecords();
+      } catch (err) {
+        showToastError("Failed to update vehicle: " + err.message);
+      }
+    }
+
+    async function loadMaintenanceRecords() {
+      const tbody = document.getElementById("maintenance-table-body");
+      tbody.innerHTML = `<tr><td colspan="8" class="empty-note">Loading maintenance records...</td></tr>`;
+      try {
+        const records = await api.get("/maintenance");
+        if (!records.length) {
+          tbody.innerHTML = `<tr><td colspan="8" class="empty-note">No maintenance records found.</td></tr>`;
+          return;
+        }
+        tbody.innerHTML = records.map((r) => `
+          <tr>
+            <td>${r.maintenanceId}</td>
+            <td>${escapeHtml(r.vehicle.vehicleNumber)}</td>
+            <td>${escapeHtml(r.serviceType)}</td>
+            <td>${r.serviceDate}</td>
+            <td>${formatCurrency(r.cost)}</td>
+            <td>${r.nextDueDate || '<span class="text-muted">-</span>'}</td>
+            <td>${escapeHtml(r.remarks || "-")}</td>
+            <td class="actions-cell">
+              <button class="btn btn-sm btn-secondary" onclick='editMaintenance(${JSON.stringify(r).replace(/'/g, "&#39;")})'>Edit</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteMaintenance(${r.maintenanceId})">Delete</button>
+            </td>
+          </tr>
+        `).join("");
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" class="empty-note">Failed to load records: ${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    function editMaintenance(record) {
+      openMaintenanceModal(record);
+    }
+
+    async function deleteMaintenance(id) {
+      if (!confirm("Delete this maintenance record?")) return;
+      try {
+        await api.del(`/maintenance/${id}`);
+        loadMaintenanceRecords();
+        loadAlerts();
+      } catch (err) {
+        showToastError("Failed to delete record: " + err.message);
+      }
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const id = document.getElementById("maintenance-id").value;
+      const nextDue = document.getElementById("maintenance-next-due").value;
+      const payload = {
+        vehicleId: Number(document.getElementById("maintenance-vehicle").value),
+        serviceType: document.getElementById("maintenance-service-type").value.trim(),
+        serviceDate: document.getElementById("maintenance-service-date").value,
+        cost: Number(document.getElementById("maintenance-cost").value),
+        nextDueDate: nextDue || null,
+        remarks: document.getElementById("maintenance-remarks").value.trim(),
+      };
+      try {
+        if (id) {
+          await api.put(`/maintenance/${id}`, payload);
+        } else {
+          await api.post("/maintenance", payload);
+        }
+        closeMaintenanceModal();
+        loadMaintenanceRecords();
+        loadAlerts();
+      } catch (err) {
+        showToastError("Failed to save maintenance record: " + err.message);
+      }
+    });
+
+    loadAlerts();
+    loadMaintenanceRecords();
+  </script>
+</body>
+</html>

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vehicles - Smart Fleet Management System</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app-shell" id="app-shell"></div>
+
+  <!-- Add/Edit Vehicle Modal -->
+  <div class="modal-overlay" id="vehicle-modal">
+    <div class="modal">
+      <h3 id="modal-title">Add Vehicle</h3>
+      <form id="vehicle-form">
+        <input type="hidden" id="vehicle-id" />
+        <div class="form-group">
+          <label>Vehicle Number</label>
+          <input type="text" id="vehicle-number" placeholder="e.g. TN01AB1234" required />
+        </div>
+        <div class="form-group">
+          <label>Model</label>
+          <input type="text" id="vehicle-model" placeholder="e.g. Toyota Etios" required />
+        </div>
+        <div class="form-group">
+          <label>Type</label>
+          <select id="vehicle-type" required>
+            <option value="CAR">Car</option>
+            <option value="TRUCK">Truck</option>
+            <option value="VAN">Van</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="vehicle-status" required>
+            <option value="AVAILABLE">Available</option>
+            <option value="ON_TRIP">On Trip</option>
+            <option value="UNDER_MAINTENANCE">Under Maintenance</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" onclick="closeVehicleModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Vehicle</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+  <script>
+    renderShell("vehicles.html", "Vehicle Management");
+
+    const content = document.getElementById("page-content");
+    content.innerHTML = `
+      <div class="toolbar">
+        <div class="search-box">
+          <span>🔍</span>
+          <input type="text" id="search-input" placeholder="Search by vehicle number or model..." />
+        </div>
+        <button class="btn btn-primary" onclick="openVehicleModal()">+ Add Vehicle</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th><th>Vehicle Number</th><th>Model</th><th>Type</th><th>Status</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="vehicle-table-body">
+            <tr><td colspan="6" class="empty-note">Loading vehicles...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    const modal = document.getElementById("vehicle-modal");
+    const form = document.getElementById("vehicle-form");
+
+    function openVehicleModal(vehicle) {
+      document.getElementById("modal-title").textContent = vehicle ? "Edit Vehicle" : "Add Vehicle";
+      document.getElementById("vehicle-id").value = vehicle ? vehicle.vehicleId : "";
+      document.getElementById("vehicle-number").value = vehicle ? vehicle.vehicleNumber : "";
+      document.getElementById("vehicle-model").value = vehicle ? vehicle.model : "";
+      document.getElementById("vehicle-type").value = vehicle ? vehicle.type.toUpperCase() : "CAR";
+      document.getElementById("vehicle-type").disabled = !!vehicle; // type can't change once created
+      document.getElementById("vehicle-status").value = vehicle ? vehicle.status : "AVAILABLE";
+      modal.classList.add("show");
+    }
+
+    function closeVehicleModal() {
+      modal.classList.remove("show");
+      form.reset();
+    }
+
+    async function loadVehicles(keyword) {
+      const tbody = document.getElementById("vehicle-table-body");
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-note">Loading vehicles...</td></tr>`;
+      try {
+        const query = keyword ? `?search=${encodeURIComponent(keyword)}` : "";
+        const vehicles = await api.get(`/vehicles${query}`);
+
+        if (!vehicles.length) {
+          tbody.innerHTML = `<tr><td colspan="6" class="empty-note">No vehicles found.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = vehicles.map((v) => `
+          <tr>
+            <td>${v.vehicleId}</td>
+            <td>${escapeHtml(v.vehicleNumber)}</td>
+            <td>${escapeHtml(v.model)}</td>
+            <td>${escapeHtml(v.type)}</td>
+            <td>${formatStatusBadge(v.status)}</td>
+            <td class="actions-cell">
+              <button class="btn btn-sm btn-secondary" onclick='editVehicle(${JSON.stringify(v).replace(/'/g, "&#39;")})'>Edit</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteVehicle(${v.vehicleId})">Delete</button>
+            </td>
+          </tr>
+        `).join("");
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="6" class="empty-note">Failed to load vehicles: ${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    function editVehicle(vehicle) {
+      openVehicleModal(vehicle);
+    }
+
+    async function deleteVehicle(id) {
+      if (!confirm("Delete this vehicle? This cannot be undone.")) return;
+      try {
+        await api.del(`/vehicles/${id}`);
+        loadVehicles(document.getElementById("search-input").value);
+      } catch (err) {
+        showToastError("Failed to delete vehicle: " + err.message);
+      }
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const id = document.getElementById("vehicle-id").value;
+      const payload = {
+        vehicleNumber: document.getElementById("vehicle-number").value.trim(),
+        model: document.getElementById("vehicle-model").value.trim(),
+        type: document.getElementById("vehicle-type").value,
+        status: document.getElementById("vehicle-status").value,
+      };
+
+      try {
+        if (id) {
+          await api.put(`/vehicles/${id}`, payload);
+        } else {
+          await api.post("/vehicles", payload);
+        }
+        closeVehicleModal();
+        loadVehicles(document.getElementById("search-input").value);
+      } catch (err) {
+        showToastError("Failed to save vehicle: " + err.message);
+      }
+    });
+
+    let searchTimer;
+    document.getElementById("search-input").addEventListener("input", (e) => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => loadVehicles(e.target.value), 300);
+    });
+
+    loadVehicles();
+  </script>
+</body>
+</html>
