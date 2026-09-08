@@ -1,7 +1,7 @@
 import java.util.ArrayList;
 import java.util.Scanner;
 
-public class Main {
+public class Smart_fleet {
 
     static Scanner sc = new Scanner(System.in);
 
